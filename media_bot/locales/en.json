@@ -1,0 +1,112 @@
+{
+  "welcome": "ID: <code>{user_id}</code> · Personal access\n\n<b>MFD.ddmedia</b> downloads public video and audio by link.\n\n<b>What the bot can do</b>\nDownload individual videos and audio from YouTube, Instagram, TikTok, VK, X, Facebook, SoundCloud, Mixcloud, Yandex Music and other supported sites. Show available quality and approximate size, extract audio as M4A or MP3, and provide a temporary file link for two hours. In groups, use /dd followed by a link.\n\n<b>How to use</b>\nSend a media link, choose a format and wait for the file.",
+  "yandex_metadata_error": "Could not get Yandex Music data. The source or current downloader version returned an error; details are in the server log. Please try again later.",
+  "yandex_unavailable": "Yandex Music is temporarily unavailable. Please try again later.",
+  "spotify_unavailable": "Spotify links are recognized, but direct downloads of most tracks and podcasts are unavailable due to source restrictions. Send a public file link or a post from a supported service instead.",
+  "settings": "<b>Settings</b>\n\nAuto download: send a small file immediately when only one suitable video format exists.\n\nApple compatibility: convert incompatible video to H.264/AAC MP4.\n\nCaption: hide the title, metadata or description. An expandable description can be used when the description fits in a Telegram caption.\n\nThe RichMessage and gallery slideshow modes from the example are not available in this bot.\n\nOn = enabled · Off = disabled",
+  "menu_files": "My files",
+  "menu_settings": "Settings",
+  "menu_language": "Language",
+  "setting_auto_download": "Auto download",
+  "setting_apple_compatible": "Apple compatibility (H.264)",
+  "setting_hide_title": "Hide title",
+  "setting_hide_meta": "Hide metadata",
+  "setting_hide_description": "Hide description",
+  "setting_collapse_description": "Expandable description",
+  "on": "On",
+  "off": "Off",
+  "back": "Back",
+  "files_heading": "My files",
+  "files_retention": "Download links last two hours; file history stays for 30 days.",
+  "files_empty": "No files yet.",
+  "file_link": "File link",
+  "link_expired": "Link expired",
+  "audio": "Audio",
+  "video": "Video",
+  "all": "All",
+  "clear_storage": "Clear storage",
+  "clear_confirm": "Delete your stored files and revoke download links?",
+  "delete": "Delete",
+  "clip_button": "Download a timed clip",
+  "clip_choose_format": "Choose video quality for the clip:",
+  "clip_cancel_button": "Cancel",
+  "clip_enter_range": "Send the start and end time in this format: 00:30–01:45. Maximum length: {max_minutes} minutes.",
+  "clip_bad_range": "I could not read that time range. Try 00:30–01:45. The end must be after the start and the clip cannot exceed 10 minutes.",
+  "clip_exceeds_duration": "The clip end is past the video duration ({duration} sec). Send another range or type “Cancel”.",
+  "clip_source_expired": "This video card is no longer available. Send the link again.",
+  "clip_cancelled": "Clip creation cancelled.",
+  "clip_queued": "Clip added to the queue: position {position}.",
+  "queue_full": "The queue is full. Please try again later.",
+  "audio_edit_enter_range": "Enter start and end, for example 00:10–01:20 (up to 10 minutes), or “whole”.",
+  "audio_edit_cancelled": "Audio edit cancelled."
+  ,"admin_panel_heading": "Administrator panel. Choose an action:"
+  ,"admin_script_version": "Script version: {version}"
+  ,"admin_server_uptime": "Server uptime: {uptime}"
+  ,"admin_process_uptime": "Bot process uptime: {uptime}"
+  ,"admin_disk": "Disk: {free} GB free of {total} GB"
+  ,"admin_media_total": "Downloaded media: {size}"
+  ,"admin_media_audio": "- audio: {size}"
+  ,"admin_media_video": "- video: {size}"
+  ,"admin_ram": "RAM: {free} GB free; {available} GB available of {total} GB"
+  ,"admin_swap": "Swap: {free} GB free of {total} GB"
+  ,"admin_swap_unconfigured": "Swap: not configured"
+  ,"admin_ram_unavailable": "RAM information is unavailable"
+  ,"admin_stats": "📊 Statistics"
+  ,"admin_history": "🕘 History"
+  ,"admin_files": "📁 Downloaded files"
+  ,"admin_yandex_connected": "connected"
+  ,"admin_yandex_disconnected": "not connected"
+  ,"admin_yandex_button": "🎵 Yandex Music · {status}"
+  ,"admin_clean": "🗑 Clean temporary folders"
+  ,"admin_changelog": "Changelog"
+  ,"admin_access_denied": "Access denied"
+  ,"admin_yandex_status_connected": "Connected. The token is stored in a protected server configuration file."
+  ,"admin_yandex_status_disconnected": "Not connected. No token for a Yandex Plus account was found."
+  ,"admin_yandex_heading": "🎵 Yandex Music setup"
+  ,"admin_yandex_instructions": "Press the button below. I will send you a sign-in link and a one-time code in a private message. Open the link and sign in to an account with Yandex Plus. The bot will not display the token."
+  ,"admin_yandex_connect": "Connect / update account"
+  ,"admin_back": "← Back"
+  ,"admin_yandex_already_running": "Authorization is already running. Check your private messages."
+  ,"admin_yandex_starting": "Starting Yandex Music authorization. I will send the link and code in a separate message."
+  ,"admin_yandex_dm": "Connect Yandex Music\n\nOpen: {url}\nOne-time code: <code>{code}</code>\n\nSign in to an account with Yandex Plus. Do not share this code."
+  ,"admin_yandex_auth_success": "Yandex Music is connected. New requests will use the updated token."
+  ,"admin_yandex_failed": "Could not connect Yandex Music. Check the code and account access, then try again with /admin."
+  ,"admin_stats_heading": "📊 Statistics"
+  ,"admin_stats_users": "Unique users who messaged the bot: {count}"
+  ,"admin_stats_messages": "Incoming messages: {count}"
+  ,"admin_stats_week": "Last 7 days: {count}"
+  ,"admin_stats_sent": "Files sent: {count}"
+  ,"admin_stats_queue": "Queued: {count}"
+  ,"admin_stats_temp": "Temporary files: {count}"
+  ,"admin_online_unknown": "Telegram does not provide the bot with online presence information."
+  ,"admin_history_choose": "History by user. Choose a user:"
+  ,"admin_history_empty": "Message history is empty."
+  ,"admin_newer": "← Newer"
+  ,"admin_older": "Older →"
+  ,"admin_history_user": "History for {label} ({user_id}):"
+  ,"admin_no_messages": "No messages."
+  ,"admin_users": "← Users"
+  ,"admin_invalid_user": "Invalid user"
+  ,"admin_files_by_date": "📁 Downloaded files by date (UTC). Files and links are kept for 2 hours."
+  ,"admin_files_empty": "No files are currently stored."
+  ,"admin_files_date_heading": "📁 Files for {day} (UTC):"
+  ,"admin_files_none_available": "No files are available."
+  ,"admin_invalid_date": "Invalid date"
+  ,"admin_clean_prompt": "Delete the bot's temporary download folders on the server ({folders}) to free up space? They currently use about {size}. Temporary links will stop working. Files already sent to Telegram will remain in the chat."
+  ,"admin_clean_delete": "Delete folders"
+  ,"admin_clean_busy": "Wait for the current task to finish or cancel it first."
+  ,"admin_clean_failed": "Could not fully clean the folders. Check server permissions and disk space."
+  ,"admin_clean_done": "Removed temporary folders: {folders}. Disk space freed: {freed}. Temporary links revoked: {links}."
+  ,"admin_dates": "← Dates"
+  ,"admin_duration": "{days} d {hours} h {minutes} min"
+  ,"admin_unknown": "unknown"
+  ,"download_format": "Format: {format}"
+  ,"download_stage": "Downloading"
+  ,"download_connecting": "Connecting to source..."
+  ,"format_best_video": "MP4, best available quality"
+  ,"format_unknown": "Selected format"
+  ,"elapsed": "Elapsed: {time}"
+  ,"processing_audio": "Processing audio…"
+  ,"upload_preparing": "Preparing file"
+  ,"upload_to_telegram": "Uploading to Telegram"
+}

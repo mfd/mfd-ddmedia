@@ -1,0 +1,6 @@
+aiogram==3.31.0
+aiohttp>=3.11,<4
+yt-dlp[default]
+curl_cffi<0.17
+yandex-music==3.2.2
+
