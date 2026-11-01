@@ -16,4 +16,4 @@ if ! systemctl is-active --quiet media-bot.service || (( restart_count_after > r
   python3 notify.py '⚠️ Бот не прошёл проверку после обновления. Сервис проверяется.' || true
   exit 1
 fi
-python3 notify.py '✅ Технические работы завершены. Бот снова принимает ссылки.'
+python3 notify.py --show-changes '✅ Технические работы завершены. Бот снова принимает ссылки.'

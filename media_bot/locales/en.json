@@ -1,4 +1,18 @@
 {
+  "access_intro": "This bot is invite-only. Request access and the owner will review it.",
+  "access_request_button": "Request access",
+  "access_new": "Your request was sent to the owner. I will let you know when it is reviewed.",
+  "access_pending": "Your request is already being reviewed.",
+  "access_denied": "Access was not approved. Contact the bot owner if you think this is an error.",
+  "access_approved": "Access is already approved. Send /start to begin.",
+  "access_admin_request": "Bot access request\nName: {name}{username}\nID: <code>{user_id}</code>",
+  "access_approve": "✅ Approve",
+  "access_deny": "⛔ Deny",
+  "access_already_handled": "This request has already been handled.",
+  "access_approved_admin": "Access approved for ID {user_id}.",
+  "access_denied_admin": "Access denied for ID {user_id}.",
+  "access_granted_user": "The owner approved access. Send /start to begin.",
+  "access_denied_user": "The owner declined your access request.",
   "welcome": "ID: <code>{user_id}</code> · Personal access\n\n<b>MFD.ddmedia</b> downloads public video and audio by link.\n\n<b>What the bot can do</b>\nDownload individual videos and audio from YouTube, Instagram, TikTok, VK, X, Facebook, SoundCloud, Mixcloud, Yandex Music and other supported sites. Show available quality and approximate size, extract audio as M4A or MP3, and provide a temporary file link for two hours. In groups, use /dd followed by a link.\n\n<b>How to use</b>\nSend a media link, choose a format and wait for the file.",
   "yandex_metadata_error": "Could not get Yandex Music data. The source or current downloader version returned an error; details are in the server log. Please try again later.",
   "yandex_unavailable": "Yandex Music is temporarily unavailable. Please try again later.",
@@ -54,11 +68,33 @@
   ,"admin_stats": "📊 Statistics"
   ,"admin_history": "🕘 History"
   ,"admin_files": "📁 Downloaded files"
+  ,"admin_bug_reports": "🐛 Bug Reports"
+  ,"bug_need_image": "Send a screenshot as a photo or PNG/JPG file. Include #bugreport and a description in its caption."
+  ,"bug_need_description": "Add a description to the screenshot caption along with #bugreport."
+  ,"bug_image_too_large": "The screenshot exceeds 20 MB. Send a smaller file."
+  ,"bug_save_failed": "Could not save the ticket and screenshot. Please send the message again."
+  ,"bug_saved": "🐛 Ticket {ticket} saved. Status: open."
+  ,"bug_status_open": "Open"
+  ,"bug_status_in_progress": "In progress"
+  ,"bug_status_closed": "Closed"
+  ,"bug_filter_active": "Active"
+  ,"bug_filter_closed": "Closed"
+  ,"bug_list_heading": "🐛 Bug Reports\nOpen: {open} · In progress: {in_progress} · Closed: {closed}\n\nTo create a ticket, send a screenshot with a description and #bugreport in the caption. Choose a ticket to view it."
+  ,"bug_list_empty": "There are no tickets in this section."
+  ,"bug_detail_heading": "🐛 {ticket} · {status}\nCreated: {created}"
+  ,"bug_show_screenshot": "🖼 Show screenshot"
+  ,"bug_set_open": "Reopen"
+  ,"bug_set_in_progress": "Mark in progress"
+  ,"bug_set_closed": "Close"
+  ,"bug_missing": "Ticket or screenshot not found."
   ,"admin_yandex_connected": "connected"
   ,"admin_yandex_disconnected": "not connected"
   ,"admin_yandex_button": "🎵 Yandex Music · {status}"
   ,"admin_clean": "🗑 Clean temporary folders"
   ,"admin_changelog": "Changelog"
+  ,"changelog_latest_heading": "Latest changes · version {version}"
+  ,"changelog_empty": "No changes are recorded yet."
+  ,"changelog_unavailable": "Could not open the changelog."
   ,"admin_access_denied": "Access denied"
   ,"admin_yandex_status_connected": "Connected. The token is stored in a protected server configuration file."
   ,"admin_yandex_status_disconnected": "Not connected. No token for a Yandex Plus account was found."

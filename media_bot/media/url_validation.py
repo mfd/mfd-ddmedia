@@ -13,6 +13,7 @@ SUPPORTED_HOSTS = {
     "youtube.com", "youtube-nocookie.com", "youtube-kids.com", "youtu.be",
     "instagram.com", "tiktok.com", "tiktokv.com", "vm.tiktok.com", "vt.tiktok.com",
     "vk.com", "vkvideo.ru", "x.com", "twitter.com", "facebook.com", "fb.watch",
+    "vimeo.com", "player.vimeo.com",
     "music.yandex.ru", "music.yandex.com", "kinescope.io",
     "soundcloud.com", "on.soundcloud.com", "mixcloud.com",
     "open.spotify.com", "spotify.link",
@@ -73,6 +74,18 @@ def validate_platform_url(url: str) -> str | None:
     # Short TikTok links redirect to a supported video URL; let yt-dlp resolve them.
     if host in {"vm.tiktok.com", "vt.tiktok.com"}:
         return None if len(parts) == 1 and re.fullmatch(r"[A-Za-z0-9]+", parts[0]) else "Не удалось распознать короткую ссылку TikTok."
+    if host in {"vimeo.com", "player.vimeo.com"}:
+        is_video = (
+            host == "player.vimeo.com" and len(parts) == 2
+            and parts[0] == "video" and parts[1].isdigit()
+        ) or (
+            host == "vimeo.com" and (
+                (len(parts) == 1 and parts[0].isdigit())
+                or (len(parts) == 2 and parts[0] == "video" and parts[1].isdigit())
+                or (len(parts) == 2 and parts[0].isdigit() and re.fullmatch(r"[A-Za-z0-9]+", parts[1]))
+            )
+        )
+        return None if is_video else "Пришлите прямую ссылку Vimeo на отдельное видео."
     if host == "kinescope.io":
         if ((len(parts) == 2 and parts[0] == "embed") or len(parts) == 1) and re.fullmatch(r"[A-Za-z0-9_-]{8,64}", parts[-1]):
             return None
@@ -81,6 +94,6 @@ def validate_platform_url(url: str) -> str | None:
         return ("Прямая трансляция VK сейчас не поддерживается. "
                 "После завершения эфира пришлите ссылку на его запись.")
     if not supported_host(host):
-        return ("Этот сайт пока не поддерживается. Пришлите ссылку на YouTube, Instagram, TikTok, "
+        return ("Этот сайт пока не поддерживается. Пришлите ссылку на YouTube, Vimeo, Instagram, TikTok, "
                 "SoundCloud, Mixcloud, Kinescope, VK, X, Facebook или Яндекс Музыку.")
     return None

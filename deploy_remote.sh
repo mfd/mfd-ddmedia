@@ -54,7 +54,7 @@ if ! systemctl is-active --quiet media-bot.service || (( restart_count_after > r
   rollback
 fi
 
-BOT_ENV_FILE="$env_file" python3 "$app/notify.py" \
+BOT_ENV_FILE="$env_file" python3 "$app/notify.py" --show-changes \
   'Технические работы завершены. Бот снова принимает ссылки.'
 echo "Deployed $version; previous version is saved at $backup"
 systemctl show media-bot.service -p ActiveState -p ActiveEnterTimestamp -p ExecMainPID

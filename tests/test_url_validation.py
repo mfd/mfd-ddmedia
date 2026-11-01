@@ -1,6 +1,11 @@
 import unittest
+import sys
+from pathlib import Path
 
-from bot.url_validation import validate_platform_url
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from media_bot.media.downloader import normalize_media_url
+from media_bot.media.url_validation import validate_platform_url
 
 
 class URLValidationTests(unittest.TestCase):
@@ -47,6 +52,22 @@ class URLValidationTests(unittest.TestCase):
 
     def test_rejects_tiktok_profile(self):
         self.assertIsNotNone(validate_platform_url("https://www.tiktok.com/@user"))
+
+    def test_vimeo_video_and_player_urls(self):
+        for url in (
+            "https://vimeo.com/750122937",
+            "https://player.vimeo.com/video/750122937",
+            "https://vimeo.com/750122937/abc123def4",
+        ):
+            with self.subTest(url=url):
+                self.assertIsNone(validate_platform_url(url))
+        self.assertIsNotNone(validate_platform_url("https://vimeo.com/user"))
+
+    def test_bare_vimeo_player_url_gets_https(self):
+        self.assertEqual(
+            normalize_media_url("player.vimeo.com/video/750122937"),
+            "https://player.vimeo.com/video/750122937",
+        )
 
 
 if __name__ == "__main__":

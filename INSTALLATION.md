@@ -8,7 +8,7 @@ Use Linux with Python 3.12+, FFmpeg and ffprobe, a Telegram bot token, and enoug
 
 ### Configuration
 
-Copy `config.example.env` to a private environment file outside the repository and fill its variables. Set `BOT_TOKEN`, `OWNER_ID`, `DATA_DIR`, `LINK_BIND_HOST`, `LINK_BIND_PORT`, `PUBLIC_BASE_URL`, `TLS_CERT_FILE`, and `TLS_KEY_FILE`. Set `LINK_BIND_PORT=8080` and `PUBLIC_BASE_URL=https://your-host:8080` if using the requested public port. `LEGACY_LINK_PORT=8443` can keep already issued links alive during migration. Restrict the environment file to the bot account; never commit it.
+Copy `config.example.env` to a private environment file outside the repository and fill its variables. Set `BOT_TOKEN`, `OWNER_ID`, `DATA_DIR`, `LINK_BIND_HOST`, `LINK_BIND_PORT`, `PUBLIC_BASE_URL`, `TLS_CERT_FILE`, and `TLS_KEY_FILE`. Add optional comma-separated Telegram IDs to `ALLOWED_USER_IDS` for pre-approved users. Other users can request access through `/start`; the owner approves or denies each request. Owner-only admin commands and server links remain restricted to `OWNER_ID`. Set `LINK_BIND_PORT=8080` and `PUBLIC_BASE_URL=https://your-host:8080` if using the requested public port. `LEGACY_LINK_PORT=8443` can keep already issued links alive during migration. Restrict the environment file to the bot account; never commit it.
 
 For files over Telegram's cloud Bot API upload limit, run the local Telegram Bot API server and set `LOCAL_API_URL` to its local endpoint. The local server needs its own Telegram API ID and hash. Keep it reachable only from the bot host. Run one bot instance against one SQLite database and one polling token.
 
@@ -16,7 +16,7 @@ For files over Telegram's cloud Bot API upload limit, run the local Telegram Bot
 
 Run `python main.py` from this directory with the configured environment loaded. For production, use a systemd service with this directory as its working directory, the private environment file, and the virtual environment's Python executable. Grant the service write access to `DATA_DIR`. After updating the code, run `deploy.sh` to announce maintenance, restart the service and verify it returned to active state. Review service status with `systemctl status media-bot.service` and the journal with `journalctl -u media-bot.service`.
 
-The bot stores job history in `DATA_DIR/jobs.sqlite3`, media in `DATA_DIR/jobs/`, and private error logs in `DATA_DIR/logs/`. Error logs are automatically pruned after 48 hours. Public file links expire after two hours; history is retained for 30 days. The bot pauses new downloads if free disk space falls below 100 MB.
+The bot stores job history in `DATA_DIR/jobs.sqlite3`, media in `DATA_DIR/jobs/`, private error logs in `DATA_DIR/logs/`, and owner bug reports in `DATA_DIR/bugreports/`. Bug reports are not removed by temporary media cleanup; review them in `/admin` or with the read-only commands in [BUGREPORTS.md](BUGREPORTS.md). Error logs are automatically pruned after 48 hours. Public file links expire after two hours; history is retained for 30 days. The bot pauses new downloads if free disk space falls below 100 MB.
 
 ## Русский
 
@@ -26,7 +26,7 @@ The bot stores job history in `DATA_DIR/jobs.sqlite3`, media in `DATA_DIR/jobs/`
 
 ### Настройка
 
-Скопируйте `config.example.env` в закрытый файл вне репозитория и заполните переменные. Укажите `BOT_TOKEN`, `OWNER_ID`, `DATA_DIR`, `LINK_BIND_HOST`, `LINK_BIND_PORT`, `PUBLIC_BASE_URL`, `TLS_CERT_FILE` и `TLS_KEY_FILE`. Для публичного порта 8080 используйте `LINK_BIND_PORT=8080` и `PUBLIC_BASE_URL=https://ваш-домен:8080`. `LEGACY_LINK_PORT=8443` сохраняет работу ранее выданных ссылок на время перехода. Ограничьте доступ к файлу окружения и не публикуйте его.
+Скопируйте `config.example.env` в закрытый файл вне репозитория и заполните переменные. Укажите `BOT_TOKEN`, `OWNER_ID`, `DATA_DIR`, `LINK_BIND_HOST`, `LINK_BIND_PORT`, `PUBLIC_BASE_URL`, `TLS_CERT_FILE` и `TLS_KEY_FILE`. В `ALLOWED_USER_IDS` можно внести Telegram ID заранее разрешённых пользователей. Остальные отправляют заявку через `/start`, владелец одобряет или отклоняет её. Команды администратора и серверные ссылки доступны только `OWNER_ID`. Для публичного порта 8080 используйте `LINK_BIND_PORT=8080` и `PUBLIC_BASE_URL=https://ваш-домен:8080`. `LEGACY_LINK_PORT=8443` сохраняет работу ранее выданных ссылок на время перехода. Ограничьте доступ к файлу окружения и не публикуйте его.
 
 Для отправки файлов больше ограничения облачного Bot API запустите локальный сервер Telegram Bot API и задайте `LOCAL_API_URL`. Локальному серверу отдельно нужны Telegram API ID и hash. Не открывайте его наружу. С одним токеном и одной базой SQLite должен работать только один экземпляр бота.
 
@@ -34,4 +34,4 @@ The bot stores job history in `DATA_DIR/jobs.sqlite3`, media in `DATA_DIR/jobs/`
 
 Запускайте `python main.py` из этой папки с загруженными переменными окружения. В production настройте службу systemd: эта папка как рабочая директория, закрытый env-файл и Python из виртуального окружения. Службе нужен доступ на запись в `DATA_DIR`. После обновления кода `deploy.sh` объявляет технические работы, перезапускает службу и проверяет, что она активна. Состояние смотрите через `systemctl status media-bot.service`, журнал службы — через `journalctl -u media-bot.service`.
 
-История задач находится в `DATA_DIR/jobs.sqlite3`, медиа — в `DATA_DIR/jobs/`, закрытые журналы ошибок — в `DATA_DIR/logs/`. Записи ошибок старше 48 часов удаляются автоматически. Публичные ссылки действуют два часа, история хранится 30 дней. При остатке диска менее 100 МБ новые загрузки приостанавливаются.
+История задач находится в `DATA_DIR/jobs.sqlite3`, медиа — в `DATA_DIR/jobs/`, закрытые журналы ошибок — в `DATA_DIR/logs/`, тикеты владельца — в `DATA_DIR/bugreports/`. Тикеты не удаляются при очистке временных файлов; их можно просмотреть в `/admin` или через команды из [BUGREPORTS.md](BUGREPORTS.md). Записи ошибок старше 48 часов удаляются автоматически. Публичные ссылки действуют два часа, история хранится 30 дней. При остатке диска менее 100 МБ новые загрузки приостанавливаются.

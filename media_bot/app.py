@@ -21,7 +21,7 @@ from aiogram import BaseMiddleware, Bot, Dispatcher, F, Router
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.client.telegram import TelegramAPIServer
 from aiogram.filters import Command, CommandStart
-from aiogram.types import BotCommand, BotCommandScopeAllGroupChats, BotCommandScopeChat, CallbackQuery, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, Message, MessageEntity
+from aiogram.types import BotCommand, BotCommandScopeAllGroupChats, BotCommandScopeChat, CallbackQuery, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, Message, MessageEntity, ReplyParameters
 
 from .i18n import tr
 from .web.links import public_path, start_server
@@ -31,12 +31,20 @@ from .data.storage import Storage
 from .media.url_validation import validate_platform_url
 from .media.ranges import parse_clip_range, MAX_CLIP_SECONDS
 from .ops.error_log import configure_error_log, prune_error_logs, worker_error_stream
+from .ops.bug_reports import BugReportStore, STATUSES as BUG_REPORT_STATUSES
+from .ops.changelog import latest_entry
 from yandex_auth import authenticate as authenticate_yandex
 
 
 log = logging.getLogger("media_bot")
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 OWNER_ID = int(os.environ.get("OWNER_ID", "0"))
+ALLOWED_USER_IDS = {
+    int(value.strip())
+    for value in os.environ.get("ALLOWED_USER_IDS", "").split(",")
+    if value.strip().isdigit()
+}
+APPROVED_USER_IDS = set(ALLOWED_USER_IDS)
 DATA_DIR = Path(os.environ["DATA_DIR"])
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
 LOCAL_API_URL = os.environ.get("LOCAL_API_URL", "").rstrip("/")
@@ -47,6 +55,7 @@ TELEGRAM_FILE_LIMIT = 1_900_000_000
 LINK_TTL = 7200
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
+bug_reports = BugReportStore(DATA_DIR / "bugreports")
 storage: Storage
 router = Router()
 queue_event = asyncio.Event()
@@ -59,7 +68,9 @@ heavy_job_lock = asyncio.Lock()
 bot: Bot
 BOT_USERNAME = ""
 SCRIPT_STARTED = time.monotonic()
-SCRIPT_VERSION = "2026.10.28.07.45"
+SCRIPT_VERSION = "2026.10.31.16.10"
+BUG_REPORT_TAG = re.compile(r"(?<!\w)(?:#bug[_-]?report|bug report)\b", re.IGNORECASE)
+BUG_REPORT_MAX_BYTES = 20 * 1024**2
 MAX_METADATA_OUTPUT = 512 * 1024
 MAX_QUEUE_LENGTH = 30
 MAX_METADATA_PENDING = 4
@@ -404,6 +415,34 @@ def storage_size_label(size: int) -> str:
     return f"{amount:.1f}".rstrip("0").rstrip(".") + f" {unit}"
 
 
+def description_split_at(description: str, limit: int) -> int:
+    """Keep a line or word intact when a Telegram caption/message fills up."""
+    if len(description) <= limit:
+        return len(description)
+    if limit <= 0:
+        return 0
+    prefix = description[:limit]
+    line_end = prefix.rfind("\n")
+    if line_end >= limit // 2:
+        return line_end + 1
+    word_end = max(prefix.rfind(" "), prefix.rfind("\t"), line_end)
+    return word_end + 1 if word_end >= limit // 2 else limit
+
+
+def description_chunks(description: str, limit: int = 3900):
+    remaining = description.strip()
+    while remaining:
+        cut = description_split_at(remaining, limit)
+        yield remaining[:cut].strip()
+        remaining = remaining[cut:].strip()
+
+
+async def send_description_continuation(chat_id: int, description: str, media_message_id: int) -> None:
+    for chunk in description_chunks(description):
+        await bot.send_message(chat_id, chunk, disable_web_page_preview=True,
+                               reply_parameters=ReplyParameters(message_id=media_message_id))
+
+
 def result_caption(row, server_url: str, actual_size: int, *, include_server_link: bool = False) -> tuple[str, str]:
     info = json.loads(row["metadata"])
     settings = storage.settings(row["requester_id"] or row["owner_id"])
@@ -474,14 +513,15 @@ def result_caption(row, server_url: str, actual_size: int, *, include_server_lin
         return header + (("\n\n" if header else "") + download_line if download_line else ""), ""
     visible_header = html.unescape(re.sub(r"<[^>]*>", "", header))
     available = max(0, 980 - len(visible_header) - len("Ссылка на файл") - 4)
-    first = description[:available]
+    cut = description_split_at(description, available)
+    first = description[:cut].rstrip()
     shown = html.escape(first)
     if shown and settings["collapse_description"] and len(description) <= available:
         shown = f"<blockquote expandable>{shown}</blockquote>"
     caption = header + (("\n\n" if header else "") + shown if shown else "")
     if download_line:
         caption += "\n\n" + download_line
-    return caption, description[available:]
+    return caption, description[cut:].lstrip()
 
 
 def format_audio_range(start: int, end: int) -> str:
@@ -549,12 +589,18 @@ def result_buttons(job_id: str, is_audio: bool) -> InlineKeyboardMarkup:
                      [("Редактировать видео", f"videoedit:{job_id}")]])
 
 
-def allowed(user_id: int | None) -> bool:
+def is_owner(user_id: int | None) -> bool:
     return OWNER_ID != 0 and user_id == OWNER_ID
 
 
+def allowed(user_id: int | None) -> bool:
+    return is_owner(user_id) or (user_id is not None and user_id in APPROVED_USER_IDS)
+
+
 def chat_allowed(chat_id: int, user_id: int | None) -> bool:
-    return (chat_id == OWNER_ID and allowed(user_id)) or storage.group_enabled(chat_id)
+    return ((chat_id == user_id and allowed(user_id))
+            or (chat_id == OWNER_ID and is_owner(user_id))
+            or storage.group_enabled(chat_id))
 
 
 def callback_allowed(query: CallbackQuery, row) -> bool:
@@ -596,7 +642,7 @@ async def change_status(job_id: str, text: str, *, force: bool = False, link_url
     row = storage.get(job_id)
     if not row:
         return
-    if not allowed(row["requester_id"] or row["owner_id"]):
+    if not is_owner(row["requester_id"] or row["owner_id"]):
         link_url = ""
     if not text.startswith(row["title"] + "\n\n"):
         text = row["title"] + "\n\n" + text.removeprefix(row["title"]).lstrip("\n")
@@ -689,12 +735,12 @@ def files_view(user_id: int, language: str, kind: str, page: int) -> tuple[str, 
             details.append(html.escape(channel[:50]))
         details.extend((size, html.escape(kind_label)))
         lines.append(" · ".join(details))
-        if (allowed(user_id) and row["file_path"] and row["token"] and row["link_expires_at"]
+        if (is_owner(user_id) and row["file_path"] and row["token"] and row["link_expires_at"]
                 and row["link_expires_at"] > int(time.time()) and Path(row["file_path"]).is_file()
                 and PUBLIC_BASE_URL):
             file_link = html.escape(PUBLIC_BASE_URL + public_path(row), quote=True)
             lines.append(f'<a href="{file_link}">{tr(language, "file_link")}</a>')
-        elif allowed(user_id):
+        elif is_owner(user_id):
             lines.append(tr(language, "link_expired"))
         lines.append("")
     buttons.append([
@@ -721,7 +767,7 @@ async def start(message: Message) -> None:
     if not message.from_user:
         return
     if message.chat.type in ("group", "supergroup"):
-        if allowed(message.from_user.id):
+        if is_owner(message.from_user.id):
             storage.enable_group(message.chat.id)
             await message.answer("Бот включён в этом чате. Отправьте /dd и ссылку на видео. Файл и временная ссылка появятся здесь после скачивания.")
         elif storage.group_enabled(message.chat.id):
@@ -736,6 +782,95 @@ async def start(message: Message) -> None:
         language = storage.settings(message.from_user.id)["language"]
         await message.answer(welcome_text(message.from_user.id, language), parse_mode="HTML",
                              reply_markup=menu_buttons(language))
+    else:
+        language = storage.settings(message.from_user.id)["language"]
+        await message.answer(
+            tr(language, "access_intro"),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text=tr(language, "access_request_button"),
+                                     callback_data="access:request")
+            ]]),
+        )
+
+
+@router.callback_query(F.data == "access:request")
+async def access_request_callback(query: CallbackQuery) -> None:
+    if not query.message or query.message.chat.type != "private":
+        await query.answer("Откройте бота в личном чате", show_alert=True)
+        return
+    user = query.from_user
+    if allowed(user.id):
+        await query.answer("Доступ уже есть", show_alert=True)
+        return
+    status = storage.request_access(user.id, user.username, user.full_name)
+    language = storage.settings(user.id)["language"]
+    if status == "new":
+        name = html.escape(user.full_name[:200])
+        username = f" (@{html.escape(user.username)})" if user.username else ""
+        markup = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text=tr("ru", "access_approve"),
+                                 callback_data=f"access:approve:{user.id}"),
+            InlineKeyboardButton(text=tr("ru", "access_deny"),
+                                 callback_data=f"access:deny:{user.id}"),
+        ]])
+        await bot.send_message(
+            OWNER_ID,
+            tr("ru", "access_admin_request", name=name, username=username, user_id=user.id),
+            parse_mode="HTML", reply_markup=markup,
+        )
+    await query.answer()
+    await query.message.answer(tr(language, f"access_{status}"))
+
+
+@router.callback_query(F.data.startswith("access:approve:") | F.data.startswith("access:deny:"))
+async def access_decision_callback(query: CallbackQuery) -> None:
+    if (not is_owner(query.from_user.id) or not query.message
+            or query.message.chat.type != "private"):
+        await query.answer(tr("ru", "admin_access_denied"), show_alert=True)
+        return
+    _, action, target_text = (query.data or "").split(":")
+    if not target_text.isdigit():
+        await query.answer("Некорректный запрос", show_alert=True)
+        return
+    target_id = int(target_text)
+    if storage.access_status(target_id) != "pending":
+        await query.answer(tr("ru", "access_already_handled"), show_alert=True)
+        return
+    if action == "approve":
+        storage.approve_user(target_id)
+        APPROVED_USER_IDS.add(target_id)
+        await bot.send_message(target_id, tr("ru", "access_granted_user"))
+        result_key = "access_approved_admin"
+    else:
+        storage.deny_access(target_id)
+        await bot.send_message(target_id, tr("ru", "access_denied_user"))
+        result_key = "access_denied_admin"
+    await query.message.edit_text(tr("ru", result_key, user_id=target_id))
+    await query.answer()
+
+
+@router.callback_query(F.data == "changelog:latest")
+async def latest_changelog_callback(query: CallbackQuery) -> None:
+    if (not is_owner(query.from_user.id) or not query.message
+            or query.message.chat.type != "private"):
+        await query.answer(tr("ru", "admin_access_denied"), show_alert=True)
+        return
+    language = storage.settings(query.from_user.id)["language"]
+    try:
+        contents = (Path(__file__).resolve().parents[1] / "CHANGELOG.txt").read_text(encoding="utf-8")
+    except OSError:
+        await query.answer(tr(language, "changelog_unavailable"), show_alert=True)
+        return
+    entry = latest_entry(contents)
+    if not entry or not entry[1]:
+        await query.answer(tr(language, "changelog_empty"), show_alert=True)
+        return
+    version, changes = entry
+    await query.answer()
+    message = tr(language, "changelog_latest_heading", version=version) + "\n\n" + changes
+    for chunk in description_chunks(message):
+        await bot.send_message(query.message.chat.id, chunk, disable_web_page_preview=True,
+                               reply_parameters=ReplyParameters(message_id=query.message.message_id))
 
 
 @router.callback_query(F.data.startswith("menu:"))
@@ -814,7 +949,7 @@ async def help_command(message: Message) -> None:
 async def enable_group(message: Message) -> None:
     if message.chat.type not in ("group", "supergroup"):
         return
-    if not message.from_user or not allowed(message.from_user.id):
+    if not message.from_user or not is_owner(message.from_user.id):
         await message.answer("Включить бота в группе может только владелец.")
         return
     storage.enable_group(message.chat.id)
@@ -823,7 +958,7 @@ async def enable_group(message: Message) -> None:
 
 @router.message(Command("status"))
 async def status_command(message: Message) -> None:
-    if not message.from_user or not allowed(message.from_user.id):
+    if not message.from_user or not is_owner(message.from_user.id):
         return
     queued = storage.db.execute("SELECT count(*) FROM jobs WHERE status='queued'").fetchone()[0]
     await message.answer(
@@ -839,6 +974,7 @@ def admin_buttons(language: str = "ru") -> InlineKeyboardMarkup:
         [(tr(language, "admin_stats"), "adm:stats"), (tr(language, "admin_history"), "adm:history:0")],
         [(tr(language, "admin_files"), "adm:files:0")],
         [(tr(language, "admin_yandex_button", status=yandex_status), "adm:yandex")],
+        [(tr(language, "admin_bug_reports"), "adm:bugs:active:0")],
         [(tr(language, "admin_clean"), "adm:clean")],
     ]
     buttons = keyboard(rows).inline_keyboard
@@ -847,9 +983,64 @@ def admin_buttons(language: str = "ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+def bug_report_list_screen(language: str, filter_name: str, offset: int) -> tuple[str, InlineKeyboardMarkup]:
+    reports = bug_reports.list()
+    counts = {status: sum(report["status"] == status for report in reports)
+              for status in BUG_REPORT_STATUSES}
+    if filter_name == "active":
+        selected = [report for report in reports if report["status"] != "closed"]
+    elif filter_name == "closed":
+        selected = [report for report in reports if report["status"] == "closed"]
+    else:
+        selected = reports
+        filter_name = "all"
+    offset = max(0, min(10000, offset))
+    page = selected[offset:offset + 10]
+    rows = []
+    for report in page:
+        preview = " ".join(bug_reports.description(report["number"]).split())[:35]
+        label = tr(language, f"bug_status_{report['status']}")
+        rows.append([(f"{report['ticket']} · {label} · {preview}",
+                      f"adm:bug:{report['number']}:{filter_name}:{offset}")])
+    navigation = []
+    if offset:
+        navigation.append((tr(language, "admin_newer"), f"adm:bugs:{filter_name}:{max(0, offset - 10)}"))
+    if len(selected) > offset + 10:
+        navigation.append((tr(language, "admin_older"), f"adm:bugs:{filter_name}:{offset + 10}"))
+    if navigation:
+        rows.append(navigation)
+    rows.append([(tr(language, "bug_filter_active"), "adm:bugs:active:0"),
+                 (tr(language, "bug_filter_closed"), "adm:bugs:closed:0")])
+    rows.append([(tr(language, "admin_back"), "adm:back")])
+    heading = tr(language, "bug_list_heading", open=counts["open"],
+                 in_progress=counts["in_progress"], closed=counts["closed"])
+    if not page:
+        heading += "\n\n" + tr(language, "bug_list_empty")
+    return heading, keyboard(rows)
+
+
+def bug_report_detail_screen(language: str, ticket_id: int, filter_name: str,
+                             offset: int) -> tuple[str, InlineKeyboardMarkup] | None:
+    report = bug_reports.get(ticket_id)
+    if not report or report["status"] not in BUG_REPORT_STATUSES:
+        return None
+    description = bug_reports.description(ticket_id)
+    rows = []
+    if report.get("screenshot"):
+        rows.append([(tr(language, "bug_show_screenshot"), f"adm:bug_photo:{ticket_id}")])
+    rows.extend([[(tr(language, f"bug_set_{status}"),
+                   f"adm:bug_set:{ticket_id}:{status}:{filter_name}:{offset}")]
+                 for status in ("open", "in_progress", "closed") if status != report["status"]])
+    rows.append([(tr(language, "admin_back"), f"adm:bugs:{filter_name}:{offset}")])
+    text = tr(language, "bug_detail_heading", ticket=report["ticket"],
+              status=tr(language, f"bug_status_{report['status']}"),
+              created=report["created_at"]) + "\n\n" + description
+    return text, keyboard(rows)
+
+
 @router.message(Command("admin"))
 async def admin_command(message: Message) -> None:
-    if message.chat.type != "private" or not message.from_user or not allowed(message.from_user.id):
+    if message.chat.type != "private" or not message.from_user or not is_owner(message.from_user.id):
         return
     language = storage.settings(message.from_user.id)["language"]
     await message.answer(f"{tr(language, 'admin_panel_heading')}\n\n{runtime_status(language)}\n{resource_status(language)}",
@@ -859,7 +1050,7 @@ async def admin_command(message: Message) -> None:
 @router.callback_query(F.data.startswith("adm:"))
 async def admin_callback(query: CallbackQuery) -> None:
     language = storage.settings(query.from_user.id)["language"]
-    if not allowed(query.from_user.id) or not query.message or query.message.chat.type != "private":
+    if not is_owner(query.from_user.id) or not query.message or query.message.chat.type != "private":
         await query.answer(tr(language, "admin_access_denied"), show_alert=True)
         return
     parts = (query.data or "").split(":")
@@ -867,6 +1058,54 @@ async def admin_callback(query: CallbackQuery) -> None:
     if action == "back":
         await query.message.edit_text(f"{tr(language, 'admin_panel_heading')}\n\n{runtime_status(language)}\n{resource_status(language)}",
                                       reply_markup=admin_buttons(language))
+    elif action == "bugs":
+        filter_name = parts[2] if len(parts) > 2 and parts[2] in {"active", "closed", "all"} else "active"
+        try:
+            offset = int(parts[3])
+        except (IndexError, ValueError):
+            offset = 0
+        text, markup = bug_report_list_screen(language, filter_name, offset)
+        await query.message.edit_text(text, reply_markup=markup)
+    elif action in {"bug", "bug_set", "bug_photo"}:
+        try:
+            ticket_id = int(parts[2])
+        except (IndexError, ValueError):
+            await query.answer(tr(language, "bug_missing"), show_alert=True)
+            return
+        if action == "bug_photo":
+            report = bug_reports.get(ticket_id)
+            screenshot_name = report.get("screenshot") if report else None
+            image = (bug_reports.folder(ticket_id) / screenshot_name
+                     if screenshot_name in {"screenshot.jpg", "screenshot.png", "screenshot.webp"} else None)
+            if not image or not image.is_file():
+                await query.answer(tr(language, "bug_missing"), show_alert=True)
+                return
+            await bot.send_photo(query.message.chat.id, FSInputFile(image), caption=report["ticket"])
+        else:
+            if action == "bug_set":
+                status = parts[3] if len(parts) > 3 else ""
+                if status not in BUG_REPORT_STATUSES:
+                    await query.answer(tr(language, "bug_missing"), show_alert=True)
+                    return
+                try:
+                    bug_reports.set_status(ticket_id, status)
+                except ValueError:
+                    await query.answer(tr(language, "bug_missing"), show_alert=True)
+                    return
+                filter_name = parts[4] if len(parts) > 4 and parts[4] in {"active", "closed", "all"} else "active"
+                offset_text = parts[5] if len(parts) > 5 else "0"
+            else:
+                filter_name = parts[3] if len(parts) > 3 and parts[3] in {"active", "closed", "all"} else "active"
+                offset_text = parts[4] if len(parts) > 4 else "0"
+            try:
+                offset = int(offset_text)
+            except ValueError:
+                offset = 0
+            screen = bug_report_detail_screen(language, ticket_id, filter_name, offset)
+            if not screen:
+                await query.answer(tr(language, "bug_missing"), show_alert=True)
+                return
+            await query.message.edit_text(screen[0], reply_markup=screen[1])
     elif action == "yandex":
         configured = bool(os.environ.get("YANDEX_MUSIC_TOKEN", "").strip())
         status = tr(language, "admin_yandex_status_connected" if configured else "admin_yandex_status_disconnected")
@@ -1070,7 +1309,7 @@ async def cancel_command(message: Message) -> None:
             await message.answer(tr(language, "clip_cancelled"))
             return
         storage.set_prompt(message.chat.id, prompt["action"], prompt["job_id"], options)
-    if not allowed(message.from_user.id):
+    if not is_owner(message.from_user.id):
         return
     if current_job:
         cancelled_jobs.add(current_job)
@@ -1079,14 +1318,68 @@ async def cancel_command(message: Message) -> None:
         await message.answer("Сейчас нет задачи в работе.")
 
 
+@router.message(F.photo | F.document)
+async def receive_bug_report_media(message: Message) -> None:
+    if (message.chat.type != "private" or not message.from_user
+            or not is_owner(message.from_user.id)):
+        return
+    caption = message.caption or ""
+    if not BUG_REPORT_TAG.search(caption):
+        return
+    language = storage.settings(message.from_user.id)["language"]
+    description = BUG_REPORT_TAG.sub("", caption, count=1).strip(" \n\t:—-")
+    if not description:
+        await message.answer(tr(language, "bug_need_description"))
+        return
+    if message.photo:
+        attachment = message.photo[-1]
+        screenshot_name = "screenshot.jpg"
+    elif message.document and message.document.mime_type in {
+            "image/jpeg", "image/png", "image/webp"}:
+        attachment = message.document
+        screenshot_name = {"image/jpeg": "screenshot.jpg", "image/png": "screenshot.png",
+                           "image/webp": "screenshot.webp"}[attachment.mime_type]
+    else:
+        await message.answer(tr(language, "bug_need_image"))
+        return
+    if attachment.file_size and attachment.file_size > BUG_REPORT_MAX_BYTES:
+        await message.answer(tr(language, "bug_image_too_large"))
+        return
+    ticket_id = None
+    try:
+        report = bug_reports.create_pending(description, chat_id=message.chat.id,
+                                            message_id=message.message_id)
+        ticket_id = report["number"]
+        screenshot = bug_reports.folder(ticket_id) / screenshot_name
+        await bot.download(attachment.file_id, destination=screenshot)
+        if not 0 < screenshot.stat().st_size <= BUG_REPORT_MAX_BYTES:
+            raise ValueError("Invalid screenshot size")
+        screenshot.chmod(0o600)
+        bug_reports.finalize(ticket_id, screenshot_name)
+    except Exception as exc:
+        if ticket_id is not None:
+            try:
+                bug_reports.discard_pending(ticket_id)
+            except OSError:
+                log.error("Could not remove incomplete bug report %s", ticket_id)
+        log.error("Could not save bug report: %s", type(exc).__name__)
+        await message.answer(tr(language, "bug_save_failed"))
+        return
+    await message.answer(tr(language, "bug_saved", ticket=report["ticket"]))
+
+
 @router.message(F.text)
 async def receive_url(message: Message) -> None:
     if (message.chat.type in ("group", "supergroup") and message.from_user
-            and allowed(message.from_user.id) and not storage.group_enabled(message.chat.id)):
+            and is_owner(message.from_user.id) and not storage.group_enabled(message.chat.id)):
         storage.enable_group(message.chat.id)
     if not message.from_user or not chat_allowed(message.chat.id, message.from_user.id):
         return
     raw = (message.text or "").strip()
+    if message.chat.type == "private" and is_owner(message.from_user.id) and BUG_REPORT_TAG.search(raw):
+        language = storage.settings(message.from_user.id)["language"]
+        await message.answer(tr(language, "bug_need_image"))
+        return
     command_token = raw.split(maxsplit=1)[0].split("@", 1)[0].lower() if raw.startswith("/") else ""
     is_fresh_download = raw.startswith(("http://", "https://")) or command_token in {"/dd", "/download"}
     pending = storage.pop_prompt(message.chat.id)
@@ -1660,7 +1953,7 @@ async def process_job(job_id: str) -> None:
     await change_status(job_id, status, force=True, link_url=url)
     caption, description_rest = result_caption(
         row, url, path.stat().st_size,
-        include_server_link=allowed(row["requester_id"] or row["owner_id"]))
+        include_server_link=is_owner(row["requester_id"] or row["owner_id"]))
     media = ProgressInputFile(path, job_id)
     if is_audio:
         message = await bot.send_audio(row["owner_id"], media, caption=caption, parse_mode="HTML",
@@ -1716,13 +2009,10 @@ async def process_job(job_id: str) -> None:
     except Exception as exc:
         log.warning("Could not remove group download request for %s: %s", job_id, type(exc).__name__)
     if description_rest:
-        for offset in range(0, len(description_rest), 3900):
-            try:
-                await bot.send_message(row["owner_id"], description_rest[offset:offset + 3900],
-                                       disable_web_page_preview=True)
-            except Exception as exc:
-                log.warning("Could not send description for %s: %s", job_id, type(exc).__name__)
-                break
+        try:
+            await send_description_continuation(row["owner_id"], description_rest, message.message_id)
+        except Exception as exc:
+            log.warning("Could not send description for %s: %s", job_id, type(exc).__name__)
     status_message_id = storage.get(job_id)["status_message_id"]
     if status_message_id:
         try:
@@ -1900,6 +2190,7 @@ async def main() -> None:
     configure_error_log(DATA_DIR)
     prune_error_logs(DATA_DIR)
     storage = Storage(DATA_DIR / "jobs.sqlite3")
+    APPROVED_USER_IDS.update(storage.approved_users())
     storage.recover()
     removed = storage.remove_orphaned_job_dirs(DATA_DIR / "jobs")
     if removed:

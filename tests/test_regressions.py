@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import asyncio
 import tempfile
 import time
 import unittest
@@ -11,7 +12,7 @@ import os
 import json
 import shutil
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from pathlib import Path
 
 
@@ -25,12 +26,75 @@ from media_bot.media.filenames import audio_filename
 from media_bot.data.storage import Storage
 from media_bot.media.url_validation import validate_platform_url
 from media_bot.ops.error_log import prune_error_logs
+from media_bot.ops.bug_reports import BugReportStore
 from media_bot.media import yandex_music
 from yandex_auth import save_token
-from media_bot.app import audio_output_title, available_file_limit, capacity_message, admin_buttons, MAX_JOB_BYTES, MIN_FREE_BYTES
+from media_bot.app import audio_output_title, available_file_limit, capacity_message, admin_buttons, description_split_at, MAX_JOB_BYTES, MIN_FREE_BYTES
+import media_bot.app as app_module
 
 
 class BotRegressions(unittest.TestCase):
+    def test_bug_report_photo_is_saved_as_open_ticket(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = BugReportStore(Path(directory) / "bugreports")
+            message = SimpleNamespace(
+                chat=SimpleNamespace(type="private", id=1),
+                from_user=SimpleNamespace(id=1),
+                caption="Повторяется прогресс #bugreport",
+                photo=[SimpleNamespace(file_id="photo-id", file_size=5)],
+                document=None,
+                message_id=25,
+                answer=AsyncMock(),
+            )
+
+            async def download(_file_id, destination):
+                Path(destination).write_bytes(b"image")
+
+            fake_bot = SimpleNamespace(download=AsyncMock(side_effect=download))
+            fake_storage = SimpleNamespace(settings=lambda _user_id: {"language": "ru"})
+            with patch.object(app_module, "bug_reports", store), \
+                 patch.object(app_module, "storage", fake_storage, create=True), \
+                 patch.object(app_module, "bot", fake_bot, create=True), \
+                 patch.object(app_module, "OWNER_ID", 1):
+                asyncio.run(app_module.receive_bug_report_media(message))
+            report = store.list("open")[0]
+            self.assertEqual(report["ticket"], "BR-000001")
+            self.assertEqual(store.description(1), "Повторяется прогресс")
+            self.assertEqual((store.folder(1) / "screenshot.jpg").read_bytes(), b"image")
+            self.assertIn("BR-000001", message.answer.await_args.args[0])
+
+    def test_admin_bug_report_view_has_status_controls(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = BugReportStore(Path(directory) / "bugreports")
+            report = store.create_pending("Прогресс дублируется", chat_id=1, message_id=2)
+            (store.folder(1) / "screenshot.jpg").write_bytes(b"image")
+            store.finalize(report["number"], "screenshot.jpg")
+            with patch.object(app_module, "bug_reports", store):
+                heading, listing = app_module.bug_report_list_screen("ru", "active", 0)
+                detail = app_module.bug_report_detail_screen("ru", 1, "active", 0)
+            self.assertIn("Открыто: 1", heading)
+            self.assertIn("BR-000001", listing.inline_keyboard[0][0].text)
+            self.assertIsNotNone(detail)
+            callbacks = [button.callback_data for row in detail[1].inline_keyboard for button in row]
+            self.assertIn("adm:bug_set:1:in_progress:active:0", callbacks)
+            self.assertIn("adm:bug_set:1:closed:active:0", callbacks)
+            self.assertIn("adm:bug_photo:1", callbacks)
+
+    def test_extra_description_replies_to_original_video(self):
+        fake_bot = SimpleNamespace(send_message=AsyncMock())
+        with patch.object(app_module, "bot", fake_bot, create=True):
+            asyncio.run(app_module.send_description_continuation(123, "слово " * 850, 456))
+        self.assertGreater(len(fake_bot.send_message.await_args_list), 1)
+        for call in fake_bot.send_message.await_args_list:
+            self.assertEqual(call.args[0], 123)
+            self.assertEqual(call.kwargs["reply_parameters"].message_id, 456)
+
+    def test_long_description_keeps_next_timing_line_together(self):
+        description = "Первый абзац\n11:00 Почему это случилось\n12:30 Следующая тема"
+        cut = description_split_at(description, 20)
+        self.assertEqual(description[:cut].rstrip(), "Первый абзац")
+        self.assertTrue(description[cut:].startswith("11:00 Почему"))
+
     def test_yandex_admin_button_uses_short_status_in_both_languages(self):
         for language, connected, disconnected in (
             ("ru", "🎵 Яндекс Музыка · подключена", "🎵 Яндекс Музыка · не подключена"),

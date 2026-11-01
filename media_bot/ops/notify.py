@@ -2,17 +2,28 @@
 
 from __future__ import annotations
 
+import argparse
+import json
 import os
-import sys
 import urllib.parse
 import urllib.request
 from pathlib import Path
 
 
+def notification_payload(chat_id: str, message: str, *, show_changes: bool = False) -> dict[str, str]:
+    payload = {"chat_id": chat_id, "text": message}
+    if show_changes:
+        payload["reply_markup"] = json.dumps({"inline_keyboard": [[{
+            "text": "Посмотреть изменения", "callback_data": "changelog:latest",
+        }]]}, ensure_ascii=False)
+    return payload
+
+
 def main() -> int:
-    if len(sys.argv) != 2:
-        print("Usage: notify.py MESSAGE", file=sys.stderr)
-        return 2
+    parser = argparse.ArgumentParser(description="Send a deployment notice to the bot owner")
+    parser.add_argument("--show-changes", action="store_true")
+    parser.add_argument("message")
+    args = parser.parse_args()
     env_path = Path(os.environ["BOT_ENV_FILE"])
     values = {}
     for line in env_path.read_text().splitlines():
@@ -24,7 +35,8 @@ def main() -> int:
     base = values.get("LOCAL_API_URL") or values["CLOUD_API_URL"]
     request = urllib.request.Request(
         f"{base.rstrip('/')}/bot{token}/sendMessage",
-        data=urllib.parse.urlencode({"chat_id": owner, "text": sys.argv[1]}).encode(),
+        data=urllib.parse.urlencode(notification_payload(owner, args.message,
+                                                         show_changes=args.show_changes)).encode(),
         method="POST",
     )
     try:

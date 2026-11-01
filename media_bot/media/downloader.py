@@ -58,14 +58,18 @@ def _instagram_size(fmt: dict[str, Any]) -> int | None:
 
 
 def normalize_media_url(raw: str) -> str:
-    parsed = urlparse(raw.strip())
+    value = raw.strip()
+    # Telegram may present a bare domain (without a visible https:// prefix).
+    if "://" not in value and not re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", value):
+        value = "https://" + value
+    parsed = urlparse(value)
     host = (parsed.hostname or "").lower()
     try:
         port = parsed.port
     except ValueError as exc:
         raise MediaError("У ссылки неверный порт.") from exc
     if (parsed.scheme != "https" or not host or parsed.username or parsed.password
-            or port not in (None, 443) or len(raw) > 2048):
+            or port not in (None, 443) or len(value) > 2048):
         raise MediaError("Пришлите ссылку HTTPS на публикацию с медиа.")
     if host == "localhost" or host.endswith((".localhost", ".local", ".internal", ".test", ".invalid")):
         raise MediaError("Локальные адреса не поддерживаются.")
@@ -76,7 +80,7 @@ def normalize_media_url(raw: str) -> str:
     else:
         if not address.is_global:
             raise MediaError("Локальные адреса не поддерживаются.")
-    return raw.strip()
+    return value
 
 
 def _source_for_extraction(url: str) -> tuple[str, dict[str, str]]:
